@@ -16,17 +16,15 @@ import (
 )
 
 const (
-	managedDescription = "managed:consul-dns-watcher"
-	maxErrorBodyBytes  = 4096
+	maxErrorBodyBytes = 4096
 )
 
 type DNSRecord struct {
-	ID          string `json:"_id,omitempty"`
-	Key         string `json:"key"`
-	RecordType  string `json:"record_type"`
-	Value       string `json:"value"`
-	Enabled     bool   `json:"enabled"`
-	Description string `json:"description,omitempty"`
+	ID         string `json:"_id,omitempty"`
+	Key        string `json:"key"`
+	RecordType string `json:"record_type"`
+	Value      string `json:"value"`
+	Enabled    bool   `json:"enabled"`
 }
 
 type UnifiClient struct {
@@ -194,11 +192,10 @@ func (u *UnifiClient) ListRecords(ctx context.Context) ([]DNSRecord, error) {
 
 func (u *UnifiClient) CreateRecord(ctx context.Context, fqdn, ip string) error {
 	record := DNSRecord{
-		Key:         fqdn,
-		RecordType:  "A",
-		Value:       ip,
-		Enabled:     true,
-		Description: managedDescription,
+		Key:        fqdn,
+		RecordType: "A",
+		Value:      ip,
+		Enabled:    true,
 	}
 
 	payload, err := json.Marshal(record)

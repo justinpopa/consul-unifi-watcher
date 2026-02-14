@@ -21,21 +21,31 @@ type ReconcileAction struct {
 // record per node IP. It only considers existing records with the managed
 // description tag.
 func Reconcile(desired []DesiredRecord, existing []DNSRecord, nodeIPs []string) []ReconcileAction {
-	// Index managed existing records by FQDN.
-	managed := make(map[string][]DNSRecord)
-	unmanaged := make(map[string]bool)
-	for _, r := range existing {
-		if r.Description == managedDescription {
-			managed[r.Key] = append(managed[r.Key], r)
-		} else {
-			unmanaged[r.Key] = true
-		}
-	}
-
 	// Build desired IP set for quick lookup
 	wantIPs := make(map[string]bool, len(nodeIPs))
 	for _, ip := range nodeIPs {
 		wantIPs[ip] = true
+	}
+
+	// Index existing records by FQDN. An FQDN is considered managed if any
+	// of its records have a value matching a traefik node IP. All records
+	// under a managed FQDN are then treated as managed (including stale IPs
+	// from removed nodes).
+	managedFQDNs := make(map[string]bool)
+	for _, r := range existing {
+		if wantIPs[r.Value] {
+			managedFQDNs[r.Key] = true
+		}
+	}
+
+	managed := make(map[string][]DNSRecord)
+	unmanaged := make(map[string]bool)
+	for _, r := range existing {
+		if managedFQDNs[r.Key] {
+			managed[r.Key] = append(managed[r.Key], r)
+		} else {
+			unmanaged[r.Key] = true
+		}
 	}
 
 	// Build desired FQDN set

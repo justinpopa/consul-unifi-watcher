@@ -314,7 +314,7 @@ func TestReconcileOnce_HappyPath(t *testing.T) {
 		{FQDN: "new.home.jpopa.com", ServiceName: "new"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r-old", Key: "old.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+		{ID: "r-old", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
 	}}
 
 	var ready atomic.Bool
@@ -337,7 +337,7 @@ func TestReconcileOnce_DryRun(t *testing.T) {
 		{FQDN: "new.home.jpopa.com", ServiceName: "new"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r-old", Key: "old.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+		{ID: "r-old", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
 	}}
 
 	var ready atomic.Bool
@@ -400,8 +400,8 @@ func TestReconcileOnce_DeleteError(t *testing.T) {
 	src := &fakeSource{records: nil}
 	mgr := &fakeManager{
 		records: []DNSRecord{
-			{ID: "r1", Key: "a.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-			{ID: "r2", Key: "b.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+			{ID: "r1", Key: "a.home.jpopa.com", Value: "10.0.0.1", },
+			{ID: "r2", Key: "b.home.jpopa.com", Value: "10.0.0.1", },
 		},
 		deleteErr: errors.New("delete fail"),
 	}
@@ -420,9 +420,9 @@ func TestReconcileOnce_NoChanges(t *testing.T) {
 		{FQDN: "web.home.jpopa.com", ServiceName: "web"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r1", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "r2", Key: "web.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
-		{ID: "r3", Key: "web.home.jpopa.com", Value: "10.0.0.3", Description: managedDescription},
+		{ID: "r1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "r2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
+		{ID: "r3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
 	}}
 
 	var ready atomic.Bool
@@ -444,7 +444,7 @@ func TestReconcileOnce_WarnUnmanaged(t *testing.T) {
 		{FQDN: "manual.home.jpopa.com", ServiceName: "svc"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r1", Key: "manual.home.jpopa.com", Value: "10.0.0.50", Description: "user-created"},
+		{ID: "r1", Key: "manual.home.jpopa.com", Value: "10.0.0.50"},
 	}}
 
 	var ready atomic.Bool
@@ -462,7 +462,7 @@ func TestReconcileOnce_WarnUnmanaged(t *testing.T) {
 func TestReconcileOnce_DryRunWithDeletes(t *testing.T) {
 	src := &fakeSource{records: nil}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r1", Key: "old.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+		{ID: "r1", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
 	}}
 
 	var ready atomic.Bool

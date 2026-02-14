@@ -29,9 +29,9 @@ func findActions(actions []ReconcileAction, typ ActionType, fqdn string) []Recon
 func TestReconcile_NoChanges(t *testing.T) {
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
-		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", Description: managedDescription},
+		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
+		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -69,8 +69,8 @@ func TestReconcile_CreateNew(t *testing.T) {
 func TestReconcile_DeleteOrphan(t *testing.T) {
 	var desired []DesiredRecord
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "old.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-2", Key: "old.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
+		{ID: "rec-1", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-2", Key: "old.home.jpopa.com", Value: "10.0.0.2", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -88,7 +88,7 @@ func TestReconcile_AddMissingIPs(t *testing.T) {
 	// FQDN exists with one IP, needs two more
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -113,10 +113,10 @@ func TestReconcile_RemoveStaleIP(t *testing.T) {
 	// FQDN has a record with an IP not in the node list
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
-		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", Description: managedDescription},
-		{ID: "rec-stale", Key: "web.home.jpopa.com", Value: "10.0.0.99", Description: managedDescription},
+		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
+		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
+		{ID: "rec-stale", Key: "web.home.jpopa.com", Value: "10.0.0.99", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -131,10 +131,9 @@ func TestReconcile_RemoveStaleIP(t *testing.T) {
 func TestReconcile_UnmanagedConflict(t *testing.T) {
 	desired := []DesiredRecord{{FQDN: "manual.home.jpopa.com", ServiceName: "svc"}}
 	existing := []DNSRecord{{
-		ID:          "rec-manual",
-		Key:         "manual.home.jpopa.com",
-		Value:       "10.0.0.50",
-		Description: "user-created",
+		ID:    "rec-manual",
+		Key:   "manual.home.jpopa.com",
+		Value: "10.0.0.50",
 	}}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -152,10 +151,10 @@ func TestReconcile_MixedScenario(t *testing.T) {
 		{FQDN: "new.home.jpopa.com", ServiceName: "new"},
 	}
 	existing := []DNSRecord{
-		{ID: "rec-k1", Key: "keep.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-k2", Key: "keep.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
-		{ID: "rec-k3", Key: "keep.home.jpopa.com", Value: "10.0.0.3", Description: managedDescription},
-		{ID: "rec-del", Key: "stale.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+		{ID: "rec-k1", Key: "keep.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-k2", Key: "keep.home.jpopa.com", Value: "10.0.0.2", },
+		{ID: "rec-k3", Key: "keep.home.jpopa.com", Value: "10.0.0.3", },
+		{ID: "rec-del", Key: "stale.home.jpopa.com", Value: "10.0.0.1", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -198,9 +197,9 @@ func TestReconcile_BothEmpty(t *testing.T) {
 func TestReconcile_DuplicateManagedRecords(t *testing.T) {
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-1-dup", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
+		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-1-dup", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -220,8 +219,8 @@ func TestReconcile_DuplicateManagedRecords(t *testing.T) {
 func TestReconcile_DuplicateOrphansBothDeleted(t *testing.T) {
 	var desired []DesiredRecord
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "old.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-2", Key: "old.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
+		{ID: "rec-1", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-2", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -241,10 +240,9 @@ func TestReconcile_DuplicateOrphansBothDeleted(t *testing.T) {
 func TestReconcile_UnmanagedIgnoredInOrphanPhase(t *testing.T) {
 	var desired []DesiredRecord
 	existing := []DNSRecord{{
-		ID:          "rec-unmanaged",
-		Key:         "manual.home.jpopa.com",
-		Value:       "10.0.0.50",
-		Description: "user-created",
+		ID:    "rec-unmanaged",
+		Key:   "manual.home.jpopa.com",
+		Value: "10.0.0.50",
 	}}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -270,9 +268,9 @@ func TestReconcile_NodeRemoved(t *testing.T) {
 	// Had 3 nodes, now only 2 — record for removed node should be deleted
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", Description: managedDescription},
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", Description: managedDescription},
-		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", Description: managedDescription},
+		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
+		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
 	}
 
 	actions := Reconcile(desired, existing, []string{"10.0.0.1", "10.0.0.2"})

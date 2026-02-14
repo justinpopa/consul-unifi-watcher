@@ -124,8 +124,8 @@ func TestListRecords_Success(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/proxy/network/v2/api/site/default/static-dns", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]DNSRecord{
-			{ID: "r1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1", Enabled: true, Description: managedDescription},
-			{ID: "r2", Key: "api.home.jpopa.com", RecordType: "A", Value: "10.0.0.1", Enabled: true, Description: "manual"},
+			{ID: "r1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1", Enabled: true},
+			{ID: "r2", Key: "api.home.jpopa.com", RecordType: "A", Value: "10.0.0.2", Enabled: true},
 		})
 	})
 
@@ -140,8 +140,8 @@ func TestListRecords_Success(t *testing.T) {
 	if records[0].ID != "r1" || records[0].Key != "web.home.jpopa.com" {
 		t.Errorf("record[0] = %+v, unexpected", records[0])
 	}
-	if records[1].Description != "manual" {
-		t.Errorf("record[1].Description = %q, want %q", records[1].Description, "manual")
+	if records[1].ID != "r2" || records[1].Key != "api.home.jpopa.com" {
+		t.Errorf("record[1] = %+v, unexpected", records[1])
 	}
 }
 
@@ -206,9 +206,6 @@ func TestCreateRecord_Success(t *testing.T) {
 	}
 	if !gotBody.Enabled {
 		t.Error("Enabled = false, want true")
-	}
-	if gotBody.Description != managedDescription {
-		t.Errorf("Description = %q, want %q", gotBody.Description, managedDescription)
 	}
 }
 
