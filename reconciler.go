@@ -1,5 +1,9 @@
 package main
 
+import "strings"
+
+const OwnerValue = "consul-dns-watcher"
+
 type ActionType string
 
 const (
@@ -9,17 +13,23 @@ const (
 )
 
 type ReconcileAction struct {
-	Type   ActionType
-	FQDN   string
-	IP     string
-	ID     string // Unifi record ID (for deletes)
-	Reason string
+	Type       ActionType
+	FQDN       string
+	IP         string
+	RecordType string // "A" or "TXT"
+	Value      string // IP for A records, OwnerValue for TXT records
+	ID         string // Unifi record ID (for deletes)
+	Reason     string
+}
+
+// txtKey returns the TXT ownership marker key for an FQDN.
+func txtKey(fqdn string) string {
+	return "_managed." + fqdn
 }
 
 // Reconcile computes the actions needed to bring Unifi DNS records in sync
-// with the desired state from Consul. Each desired FQDN should have one A
-// record per node IP. It only considers existing records with the managed
-// description tag.
+// with the desired state from Consul. Ownership is determined by the presence
+// of a companion TXT record (_managed.<fqdn> = "consul-dns-watcher").
 func Reconcile(desired []DesiredRecord, existing []DNSRecord, nodeIPs []string) []ReconcileAction {
 	// Build desired IP set for quick lookup
 	wantIPs := make(map[string]bool, len(nodeIPs))
@@ -27,20 +37,25 @@ func Reconcile(desired []DesiredRecord, existing []DNSRecord, nodeIPs []string) 
 		wantIPs[ip] = true
 	}
 
-	// Index existing records by FQDN. An FQDN is considered managed if any
-	// of its records have a value matching a traefik node IP. All records
-	// under a managed FQDN are then treated as managed (including stale IPs
-	// from removed nodes).
+	// Scan existing records to find TXT ownership markers.
+	// An FQDN is managed if _managed.<fqdn> TXT record exists with OwnerValue.
 	managedFQDNs := make(map[string]bool)
+	txtRecords := make(map[string]DNSRecord) // fqdn -> TXT record
 	for _, r := range existing {
-		if wantIPs[r.Value] {
-			managedFQDNs[r.Key] = true
+		if r.RecordType == "TXT" && r.Value == OwnerValue && strings.HasPrefix(r.Key, "_managed.") {
+			fqdn := strings.TrimPrefix(r.Key, "_managed.")
+			managedFQDNs[fqdn] = true
+			txtRecords[fqdn] = r
 		}
 	}
 
-	managed := make(map[string][]DNSRecord)
-	unmanaged := make(map[string]bool)
+	// Index existing A records by FQDN into managed/unmanaged buckets.
+	managed := make(map[string][]DNSRecord)   // managed A records
+	unmanaged := make(map[string]bool)         // FQDNs with A records but no TXT marker
 	for _, r := range existing {
+		if r.RecordType == "TXT" {
+			continue
+		}
 		if managedFQDNs[r.Key] {
 			managed[r.Key] = append(managed[r.Key], r)
 		} else {
@@ -55,24 +70,24 @@ func Reconcile(desired []DesiredRecord, existing []DNSRecord, nodeIPs []string) 
 	for _, d := range desired {
 		desiredSet[d.FQDN] = true
 
-		if recs, ok := managed[d.FQDN]; ok {
-			// Find which IPs already have records and which are extra
+		if managedFQDNs[d.FQDN] {
+			// Managed FQDN — reconcile A records
+			recs := managed[d.FQDN]
 			haveIPs := make(map[string]bool)
 			for _, rec := range recs {
 				if wantIPs[rec.Value] && !haveIPs[rec.Value] {
-					// Correct IP, first occurrence — keep it
 					haveIPs[rec.Value] = true
 				} else {
-					// Wrong IP or duplicate — delete
 					reason := "IP not in node list, removing"
 					if wantIPs[rec.Value] {
 						reason = "removing duplicate"
 					}
 					actions = append(actions, ReconcileAction{
-						Type:   ActionDelete,
-						FQDN:   d.FQDN,
-						ID:     rec.ID,
-						Reason: reason,
+						Type:       ActionDelete,
+						FQDN:       d.FQDN,
+						ID:         rec.ID,
+						RecordType: "A",
+						Reason:     reason,
 					})
 				}
 			}
@@ -81,10 +96,12 @@ func Reconcile(desired []DesiredRecord, existing []DNSRecord, nodeIPs []string) 
 			for _, ip := range nodeIPs {
 				if !haveIPs[ip] {
 					actions = append(actions, ReconcileAction{
-						Type:   ActionCreate,
-						FQDN:   d.FQDN,
-						IP:     ip,
-						Reason: "new record",
+						Type:       ActionCreate,
+						FQDN:       d.FQDN,
+						IP:         ip,
+						RecordType: "A",
+						Value:      ip,
+						Reason:     "new record",
 					})
 				}
 			}
@@ -96,27 +113,48 @@ func Reconcile(desired []DesiredRecord, existing []DNSRecord, nodeIPs []string) 
 				Reason: "conflicts with unmanaged record, skipping",
 			})
 		} else {
-			// New FQDN — create one record per node IP
+			// New FQDN — create TXT marker + one A record per node IP
+			actions = append(actions, ReconcileAction{
+				Type:       ActionCreate,
+				FQDN:       d.FQDN,
+				RecordType: "TXT",
+				Value:      OwnerValue,
+				Reason:     "ownership marker",
+			})
 			for _, ip := range nodeIPs {
 				actions = append(actions, ReconcileAction{
-					Type:   ActionCreate,
-					FQDN:   d.FQDN,
-					IP:     ip,
-					Reason: "new record",
+					Type:       ActionCreate,
+					FQDN:       d.FQDN,
+					IP:         ip,
+					RecordType: "A",
+					Value:      ip,
+					Reason:     "new record",
 				})
 			}
 		}
 	}
 
-	// Delete managed records no longer in desired set
-	for fqdn, recs := range managed {
+	// Delete managed records no longer in desired set (A records + TXT marker)
+	for fqdn := range managedFQDNs {
 		if !desiredSet[fqdn] {
-			for _, rec := range recs {
+			// Delete A records
+			for _, rec := range managed[fqdn] {
 				actions = append(actions, ReconcileAction{
-					Type:   ActionDelete,
-					FQDN:   fqdn,
-					ID:     rec.ID,
-					Reason: "service removed from consul",
+					Type:       ActionDelete,
+					FQDN:       fqdn,
+					ID:         rec.ID,
+					RecordType: "A",
+					Reason:     "service removed from consul",
+				})
+			}
+			// Delete TXT marker
+			if txt, ok := txtRecords[fqdn]; ok {
+				actions = append(actions, ReconcileAction{
+					Type:       ActionDelete,
+					FQDN:       fqdn,
+					ID:         txt.ID,
+					RecordType: "TXT",
+					Reason:     "service removed from consul",
 				})
 			}
 		}

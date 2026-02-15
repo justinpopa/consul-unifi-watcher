@@ -26,12 +26,35 @@ func findActions(actions []ReconcileAction, typ ActionType, fqdn string) []Recon
 	return result
 }
 
+// findActionsByRecordType filters actions by type, FQDN, and record type.
+func findActionsByRecordType(actions []ReconcileAction, typ ActionType, fqdn, recordType string) []ReconcileAction {
+	var result []ReconcileAction
+	for _, a := range actions {
+		if a.Type == typ && a.FQDN == fqdn && a.RecordType == recordType {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
+// txtRecord creates a TXT ownership marker DNSRecord.
+func txtRecord(id, fqdn string) DNSRecord {
+	return DNSRecord{
+		ID:         id,
+		Key:        "_managed." + fqdn,
+		RecordType: "TXT",
+		Value:      OwnerValue,
+		Enabled:    true,
+	}
+}
+
 func TestReconcile_NoChanges(t *testing.T) {
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
-		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
+		txtRecord("txt-web", "web.home.jpopa.com"),
+		{ID: "rec-1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-2", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
+		{ID: "rec-3", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.3"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -45,18 +68,27 @@ func TestReconcile_CreateNew(t *testing.T) {
 	var existing []DNSRecord
 
 	actions := Reconcile(desired, existing, testNodeIPs)
-	if len(actions) != 3 {
-		t.Fatalf("expected 3 actions (one create per node IP), got %d: %+v", len(actions), actions)
+	// 1 TXT + 3 A records = 4
+	if len(actions) != 4 {
+		t.Fatalf("expected 4 actions (1 TXT + 3 A creates), got %d: %+v", len(actions), actions)
+	}
+
+	// First action should be TXT marker
+	txtCreates := findActionsByRecordType(actions, ActionCreate, "new.home.jpopa.com", "TXT")
+	if len(txtCreates) != 1 {
+		t.Fatalf("expected 1 TXT create, got %d", len(txtCreates))
+	}
+	if txtCreates[0].Value != OwnerValue {
+		t.Errorf("TXT value = %q, want %q", txtCreates[0].Value, OwnerValue)
+	}
+
+	aCreates := findActionsByRecordType(actions, ActionCreate, "new.home.jpopa.com", "A")
+	if len(aCreates) != 3 {
+		t.Fatalf("expected 3 A creates, got %d", len(aCreates))
 	}
 
 	createdIPs := make(map[string]bool)
-	for _, a := range actions {
-		if a.Type != ActionCreate {
-			t.Errorf("expected create, got %q", a.Type)
-		}
-		if a.FQDN != "new.home.jpopa.com" {
-			t.Errorf("FQDN = %q, want %q", a.FQDN, "new.home.jpopa.com")
-		}
+	for _, a := range aCreates {
 		createdIPs[a.IP] = true
 	}
 	for _, ip := range testNodeIPs {
@@ -69,18 +101,26 @@ func TestReconcile_CreateNew(t *testing.T) {
 func TestReconcile_DeleteOrphan(t *testing.T) {
 	var desired []DesiredRecord
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-2", Key: "old.home.jpopa.com", Value: "10.0.0.2", },
+		txtRecord("txt-old", "old.home.jpopa.com"),
+		{ID: "rec-1", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-2", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
-	if len(actions) != 2 {
-		t.Fatalf("expected 2 delete actions, got %d: %+v", len(actions), actions)
+	// 2 A deletes + 1 TXT delete = 3
+	if len(actions) != 3 {
+		t.Fatalf("expected 3 delete actions, got %d: %+v", len(actions), actions)
 	}
 	for _, a := range actions {
 		if a.Type != ActionDelete {
 			t.Errorf("expected delete, got %q", a.Type)
 		}
+	}
+
+	// Verify TXT is included in deletes
+	txtDeletes := findActionsByRecordType(actions, ActionDelete, "old.home.jpopa.com", "TXT")
+	if len(txtDeletes) != 1 || txtDeletes[0].ID != "txt-old" {
+		t.Errorf("expected TXT delete for txt-old, got %+v", txtDeletes)
 	}
 }
 
@@ -88,13 +128,14 @@ func TestReconcile_AddMissingIPs(t *testing.T) {
 	// FQDN exists with one IP, needs two more
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
+		txtRecord("txt-web", "web.home.jpopa.com"),
+		{ID: "rec-1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
-	creates := findActions(actions, ActionCreate, "web.home.jpopa.com")
+	creates := findActionsByRecordType(actions, ActionCreate, "web.home.jpopa.com", "A")
 	if len(creates) != 2 {
-		t.Fatalf("expected 2 creates for missing IPs, got %d: %+v", len(creates), creates)
+		t.Fatalf("expected 2 A creates for missing IPs, got %d: %+v", len(creates), creates)
 	}
 
 	createdIPs := make(map[string]bool)
@@ -113,10 +154,11 @@ func TestReconcile_RemoveStaleIP(t *testing.T) {
 	// FQDN has a record with an IP not in the node list
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
-		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
-		{ID: "rec-stale", Key: "web.home.jpopa.com", Value: "10.0.0.99", },
+		txtRecord("txt-web", "web.home.jpopa.com"),
+		{ID: "rec-1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-2", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
+		{ID: "rec-3", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.3"},
+		{ID: "rec-stale", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.99"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -131,9 +173,10 @@ func TestReconcile_RemoveStaleIP(t *testing.T) {
 func TestReconcile_UnmanagedConflict(t *testing.T) {
 	desired := []DesiredRecord{{FQDN: "manual.home.jpopa.com", ServiceName: "svc"}}
 	existing := []DNSRecord{{
-		ID:    "rec-manual",
-		Key:   "manual.home.jpopa.com",
-		Value: "10.0.0.50",
+		ID:         "rec-manual",
+		Key:        "manual.home.jpopa.com",
+		RecordType: "A",
+		Value:      "10.0.0.50",
 	}}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -151,22 +194,26 @@ func TestReconcile_MixedScenario(t *testing.T) {
 		{FQDN: "new.home.jpopa.com", ServiceName: "new"},
 	}
 	existing := []DNSRecord{
-		{ID: "rec-k1", Key: "keep.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-k2", Key: "keep.home.jpopa.com", Value: "10.0.0.2", },
-		{ID: "rec-k3", Key: "keep.home.jpopa.com", Value: "10.0.0.3", },
-		{ID: "rec-del", Key: "stale.home.jpopa.com", Value: "10.0.0.1", },
+		txtRecord("txt-keep", "keep.home.jpopa.com"),
+		{ID: "rec-k1", Key: "keep.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-k2", Key: "keep.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
+		{ID: "rec-k3", Key: "keep.home.jpopa.com", RecordType: "A", Value: "10.0.0.3"},
+		txtRecord("txt-stale", "stale.home.jpopa.com"),
+		{ID: "rec-del", Key: "stale.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
 
-	creates := findActions(actions, ActionCreate, "new.home.jpopa.com")
-	if len(creates) != 3 {
-		t.Errorf("expected 3 creates for new.home.jpopa.com, got %d", len(creates))
+	// new: 1 TXT + 3 A creates = 4
+	newCreates := findActions(actions, ActionCreate, "new.home.jpopa.com")
+	if len(newCreates) != 4 {
+		t.Errorf("expected 4 creates for new.home.jpopa.com (1 TXT + 3 A), got %d", len(newCreates))
 	}
 
-	del := findAction(actions, ActionDelete, "stale.home.jpopa.com")
-	if del == nil {
-		t.Error("expected delete action for stale.home.jpopa.com")
+	// stale: 1 A delete + 1 TXT delete = 2
+	staleDels := findActions(actions, ActionDelete, "stale.home.jpopa.com")
+	if len(staleDels) != 2 {
+		t.Errorf("expected 2 deletes for stale.home.jpopa.com (1 A + 1 TXT), got %d", len(staleDels))
 	}
 
 	// "keep" should produce no actions
@@ -176,9 +223,9 @@ func TestReconcile_MixedScenario(t *testing.T) {
 		t.Error("expected no actions for keep.home.jpopa.com")
 	}
 
-	// Total: 3 creates + 1 delete = 4
-	if len(actions) != 4 {
-		t.Errorf("expected 4 actions, got %d: %+v", len(actions), actions)
+	// Total: 4 creates + 2 deletes = 6
+	if len(actions) != 6 {
+		t.Errorf("expected 6 actions, got %d: %+v", len(actions), actions)
 	}
 }
 
@@ -197,20 +244,21 @@ func TestReconcile_BothEmpty(t *testing.T) {
 func TestReconcile_DuplicateManagedRecords(t *testing.T) {
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-1-dup", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
+		txtRecord("txt-web", "web.home.jpopa.com"),
+		{ID: "rec-1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-1-dup", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-2", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
 
 	// Should delete the duplicate and create the missing IP
-	deletes := findActions(actions, ActionDelete, "web.home.jpopa.com")
+	deletes := findActionsByRecordType(actions, ActionDelete, "web.home.jpopa.com", "A")
 	if len(deletes) != 1 || deletes[0].ID != "rec-1-dup" {
 		t.Errorf("expected 1 delete of rec-1-dup, got %+v", deletes)
 	}
 
-	creates := findActions(actions, ActionCreate, "web.home.jpopa.com")
+	creates := findActionsByRecordType(actions, ActionCreate, "web.home.jpopa.com", "A")
 	if len(creates) != 1 || creates[0].IP != "10.0.0.3" {
 		t.Errorf("expected 1 create for 10.0.0.3, got %+v", creates)
 	}
@@ -219,11 +267,17 @@ func TestReconcile_DuplicateManagedRecords(t *testing.T) {
 func TestReconcile_DuplicateOrphansBothDeleted(t *testing.T) {
 	var desired []DesiredRecord
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-2", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
+		txtRecord("txt-old", "old.home.jpopa.com"),
+		{ID: "rec-1", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-2", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 	}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
+
+	// 2 A deletes + 1 TXT delete = 3
+	if len(actions) != 3 {
+		t.Fatalf("expected 3 deletes, got %d: %+v", len(actions), actions)
+	}
 
 	deletedIDs := make(map[string]bool)
 	for _, a := range actions {
@@ -232,17 +286,18 @@ func TestReconcile_DuplicateOrphansBothDeleted(t *testing.T) {
 		}
 		deletedIDs[a.ID] = true
 	}
-	if !deletedIDs["rec-1"] || !deletedIDs["rec-2"] {
-		t.Errorf("expected both orphan duplicates deleted, got %v", deletedIDs)
+	if !deletedIDs["rec-1"] || !deletedIDs["rec-2"] || !deletedIDs["txt-old"] {
+		t.Errorf("expected all records deleted, got %v", deletedIDs)
 	}
 }
 
 func TestReconcile_UnmanagedIgnoredInOrphanPhase(t *testing.T) {
 	var desired []DesiredRecord
 	existing := []DNSRecord{{
-		ID:    "rec-unmanaged",
-		Key:   "manual.home.jpopa.com",
-		Value: "10.0.0.50",
+		ID:         "rec-unmanaged",
+		Key:        "manual.home.jpopa.com",
+		RecordType: "A",
+		Value:      "10.0.0.50",
 	}}
 
 	actions := Reconcile(desired, existing, testNodeIPs)
@@ -256,11 +311,18 @@ func TestReconcile_SingleNodeIP(t *testing.T) {
 	var existing []DNSRecord
 
 	actions := Reconcile(desired, existing, []string{"10.0.0.1"})
-	if len(actions) != 1 {
-		t.Fatalf("expected 1 create, got %d: %+v", len(actions), actions)
+	// 1 TXT + 1 A = 2
+	if len(actions) != 2 {
+		t.Fatalf("expected 2 creates (1 TXT + 1 A), got %d: %+v", len(actions), actions)
 	}
-	if actions[0].Type != ActionCreate || actions[0].IP != "10.0.0.1" {
-		t.Errorf("unexpected action: %+v", actions[0])
+
+	txtCreates := findActionsByRecordType(actions, ActionCreate, "web.home.jpopa.com", "TXT")
+	aCreates := findActionsByRecordType(actions, ActionCreate, "web.home.jpopa.com", "A")
+	if len(txtCreates) != 1 {
+		t.Errorf("expected 1 TXT create, got %d", len(txtCreates))
+	}
+	if len(aCreates) != 1 || aCreates[0].IP != "10.0.0.1" {
+		t.Errorf("expected 1 A create for 10.0.0.1, got %+v", aCreates)
 	}
 }
 
@@ -268,9 +330,10 @@ func TestReconcile_NodeRemoved(t *testing.T) {
 	// Had 3 nodes, now only 2 — record for removed node should be deleted
 	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
 	existing := []DNSRecord{
-		{ID: "rec-1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "rec-2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
-		{ID: "rec-3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
+		txtRecord("txt-web", "web.home.jpopa.com"),
+		{ID: "rec-1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "rec-2", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
+		{ID: "rec-3", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.3"},
 	}
 
 	actions := Reconcile(desired, existing, []string{"10.0.0.1", "10.0.0.2"})
@@ -279,5 +342,63 @@ func TestReconcile_NodeRemoved(t *testing.T) {
 	}
 	if actions[0].Type != ActionDelete || actions[0].ID != "rec-3" {
 		t.Errorf("expected delete of rec-3, got %+v", actions[0])
+	}
+}
+
+func TestReconcile_TXTWithoutARecords(t *testing.T) {
+	// TXT marker exists but no A records — should create A records without duplicate TXT
+	desired := []DesiredRecord{{FQDN: "web.home.jpopa.com", ServiceName: "web"}}
+	existing := []DNSRecord{
+		txtRecord("txt-web", "web.home.jpopa.com"),
+	}
+
+	actions := Reconcile(desired, existing, testNodeIPs)
+	// Should create 3 A records (no duplicate TXT)
+	txtCreates := findActionsByRecordType(actions, ActionCreate, "web.home.jpopa.com", "TXT")
+	aCreates := findActionsByRecordType(actions, ActionCreate, "web.home.jpopa.com", "A")
+
+	if len(txtCreates) != 0 {
+		t.Errorf("expected 0 TXT creates (already exists), got %d", len(txtCreates))
+	}
+	if len(aCreates) != 3 {
+		t.Errorf("expected 3 A creates, got %d", len(aCreates))
+	}
+}
+
+func TestReconcile_OrphanTXTOnly(t *testing.T) {
+	// TXT marker exists for an FQDN no longer desired, but no A records
+	var desired []DesiredRecord
+	existing := []DNSRecord{
+		txtRecord("txt-old", "old.home.jpopa.com"),
+	}
+
+	actions := Reconcile(desired, existing, testNodeIPs)
+	// Should delete the orphan TXT marker
+	if len(actions) != 1 {
+		t.Fatalf("expected 1 delete (TXT only), got %d: %+v", len(actions), actions)
+	}
+	if actions[0].Type != ActionDelete || actions[0].ID != "txt-old" || actions[0].RecordType != "TXT" {
+		t.Errorf("expected TXT delete, got %+v", actions[0])
+	}
+}
+
+func TestReconcile_UnmanagedWithSameIPsNotTouched(t *testing.T) {
+	// Records with node IPs but no TXT marker should NOT be treated as managed
+	desired := []DesiredRecord{{FQDN: "traefik.home.jpopa.com", ServiceName: "traefik"}}
+	existing := []DNSRecord{
+		// node1 has same IP as traefik but is unmanaged (no TXT)
+		{ID: "node1-rec", Key: "node1.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		// traefik has no records at all — should be created fresh
+	}
+
+	actions := Reconcile(desired, existing, testNodeIPs)
+	// Should create 1 TXT + 3 A for traefik, and NOT touch node1
+	if len(actions) != 4 {
+		t.Fatalf("expected 4 creates, got %d: %+v", len(actions), actions)
+	}
+	for _, a := range actions {
+		if a.FQDN != "traefik.home.jpopa.com" {
+			t.Errorf("unexpected action for %q: %+v", a.FQDN, a)
+		}
 	}
 }

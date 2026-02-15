@@ -190,11 +190,11 @@ func (u *UnifiClient) ListRecords(ctx context.Context) ([]DNSRecord, error) {
 	return records, nil
 }
 
-func (u *UnifiClient) CreateRecord(ctx context.Context, fqdn, ip string) error {
+func (u *UnifiClient) CreateRecord(ctx context.Context, key, recordType, value string) error {
 	record := DNSRecord{
-		Key:        fqdn,
-		RecordType: "A",
-		Value:      ip,
+		Key:        key,
+		RecordType: recordType,
+		Value:      value,
 		Enabled:    true,
 	}
 

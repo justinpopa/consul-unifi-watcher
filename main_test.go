@@ -37,15 +37,15 @@ type fakeManager struct {
 }
 
 type createCall struct {
-	fqdn, ip string
+	key, recordType, value string
 }
 
 func (f *fakeManager) ListRecords(context.Context) ([]DNSRecord, error) {
 	return f.records, f.listErr
 }
 
-func (f *fakeManager) CreateRecord(_ context.Context, fqdn, ip string) error {
-	f.created = append(f.created, createCall{fqdn, ip})
+func (f *fakeManager) CreateRecord(_ context.Context, key, recordType, value string) error {
+	f.created = append(f.created, createCall{key, recordType, value})
 	return f.createErr
 }
 
@@ -314,7 +314,8 @@ func TestReconcileOnce_HappyPath(t *testing.T) {
 		{FQDN: "new.home.jpopa.com", ServiceName: "new"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r-old", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "txt-old", Key: "_managed.old.home.jpopa.com", RecordType: "TXT", Value: OwnerValue},
+		{ID: "r-old", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 	}}
 
 	var ready atomic.Bool
@@ -323,12 +324,13 @@ func TestReconcileOnce_HappyPath(t *testing.T) {
 	if !ready.Load() {
 		t.Error("expected ready=true after successful reconcile")
 	}
-	// 3 creates (one per node IP) for the new service
-	if len(mgr.created) != 3 {
-		t.Errorf("expected 3 creates, got %d: %+v", len(mgr.created), mgr.created)
+	// 4 creates (1 TXT + 3 A) for the new service
+	if len(mgr.created) != 4 {
+		t.Errorf("expected 4 creates, got %d: %+v", len(mgr.created), mgr.created)
 	}
-	if len(mgr.deleted) != 1 || mgr.deleted[0] != "r-old" {
-		t.Errorf("unexpected deletes: %+v", mgr.deleted)
+	// 2 deletes (1 A + 1 TXT) for the orphaned service
+	if len(mgr.deleted) != 2 {
+		t.Errorf("expected 2 deletes, got %d: %+v", len(mgr.deleted), mgr.deleted)
 	}
 }
 
@@ -337,7 +339,8 @@ func TestReconcileOnce_DryRun(t *testing.T) {
 		{FQDN: "new.home.jpopa.com", ServiceName: "new"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r-old", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "txt-old", Key: "_managed.old.home.jpopa.com", RecordType: "TXT", Value: OwnerValue},
+		{ID: "r-old", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 	}}
 
 	var ready atomic.Bool
@@ -390,9 +393,9 @@ func TestReconcileOnce_CreateError(t *testing.T) {
 	var ready atomic.Bool
 	reconcileOnce(context.Background(), slog.Default(), src, defaultNodeSource(), mgr, testCfg(false), &ready)
 
-	// 2 FQDNs * 3 node IPs = 6 create attempts even though they fail
-	if len(mgr.created) != 6 {
-		t.Errorf("expected 6 create attempts, got %d", len(mgr.created))
+	// 2 FQDNs * (1 TXT + 3 A) = 8 create attempts even though they fail
+	if len(mgr.created) != 8 {
+		t.Errorf("expected 8 create attempts, got %d", len(mgr.created))
 	}
 }
 
@@ -400,8 +403,10 @@ func TestReconcileOnce_DeleteError(t *testing.T) {
 	src := &fakeSource{records: nil}
 	mgr := &fakeManager{
 		records: []DNSRecord{
-			{ID: "r1", Key: "a.home.jpopa.com", Value: "10.0.0.1", },
-			{ID: "r2", Key: "b.home.jpopa.com", Value: "10.0.0.1", },
+			{ID: "txt-a", Key: "_managed.a.home.jpopa.com", RecordType: "TXT", Value: OwnerValue},
+			{ID: "r1", Key: "a.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+			{ID: "txt-b", Key: "_managed.b.home.jpopa.com", RecordType: "TXT", Value: OwnerValue},
+			{ID: "r2", Key: "b.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 		},
 		deleteErr: errors.New("delete fail"),
 	}
@@ -409,9 +414,9 @@ func TestReconcileOnce_DeleteError(t *testing.T) {
 	var ready atomic.Bool
 	reconcileOnce(context.Background(), slog.Default(), src, defaultNodeSource(), mgr, testCfg(false), &ready)
 
-	// Both deletes should be attempted even though they fail
-	if len(mgr.deleted) != 2 {
-		t.Errorf("expected 2 delete attempts, got %d", len(mgr.deleted))
+	// 2 A deletes + 2 TXT deletes = 4 attempts even though they fail
+	if len(mgr.deleted) != 4 {
+		t.Errorf("expected 4 delete attempts, got %d", len(mgr.deleted))
 	}
 }
 
@@ -420,9 +425,10 @@ func TestReconcileOnce_NoChanges(t *testing.T) {
 		{FQDN: "web.home.jpopa.com", ServiceName: "web"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r1", Key: "web.home.jpopa.com", Value: "10.0.0.1", },
-		{ID: "r2", Key: "web.home.jpopa.com", Value: "10.0.0.2", },
-		{ID: "r3", Key: "web.home.jpopa.com", Value: "10.0.0.3", },
+		{ID: "txt-web", Key: "_managed.web.home.jpopa.com", RecordType: "TXT", Value: OwnerValue},
+		{ID: "r1", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
+		{ID: "r2", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.2"},
+		{ID: "r3", Key: "web.home.jpopa.com", RecordType: "A", Value: "10.0.0.3"},
 	}}
 
 	var ready atomic.Bool
@@ -444,7 +450,7 @@ func TestReconcileOnce_WarnUnmanaged(t *testing.T) {
 		{FQDN: "manual.home.jpopa.com", ServiceName: "svc"},
 	}}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r1", Key: "manual.home.jpopa.com", Value: "10.0.0.50"},
+		{ID: "r1", Key: "manual.home.jpopa.com", RecordType: "A", Value: "10.0.0.50"},
 	}}
 
 	var ready atomic.Bool
@@ -462,7 +468,8 @@ func TestReconcileOnce_WarnUnmanaged(t *testing.T) {
 func TestReconcileOnce_DryRunWithDeletes(t *testing.T) {
 	src := &fakeSource{records: nil}
 	mgr := &fakeManager{records: []DNSRecord{
-		{ID: "r1", Key: "old.home.jpopa.com", Value: "10.0.0.1", },
+		{ID: "txt-old", Key: "_managed.old.home.jpopa.com", RecordType: "TXT", Value: OwnerValue},
+		{ID: "r1", Key: "old.home.jpopa.com", RecordType: "A", Value: "10.0.0.1"},
 	}}
 
 	var ready atomic.Bool

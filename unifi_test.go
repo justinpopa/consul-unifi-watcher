@@ -190,7 +190,7 @@ func TestCreateRecord_Success(t *testing.T) {
 	})
 
 	uc, _ := newTestUnifiClient(t, mux)
-	err := uc.CreateRecord(context.Background(), "new.home.jpopa.com", "10.0.0.1")
+	err := uc.CreateRecord(context.Background(), "new.home.jpopa.com", "A", "10.0.0.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -209,6 +209,39 @@ func TestCreateRecord_Success(t *testing.T) {
 	}
 }
 
+func TestCreateRecord_TXT(t *testing.T) {
+	var gotBody DNSRecord
+	mux := http.NewServeMux()
+	mux.HandleFunc("/proxy/network/v2/api/site/default/static-dns", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &gotBody)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	uc, _ := newTestUnifiClient(t, mux)
+	err := uc.CreateRecord(context.Background(), "_managed.web.home.jpopa.com", "TXT", "consul-dns-watcher")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotBody.Key != "_managed.web.home.jpopa.com" {
+		t.Errorf("Key = %q, want %q", gotBody.Key, "_managed.web.home.jpopa.com")
+	}
+	if gotBody.RecordType != "TXT" {
+		t.Errorf("RecordType = %q, want %q", gotBody.RecordType, "TXT")
+	}
+	if gotBody.Value != "consul-dns-watcher" {
+		t.Errorf("Value = %q, want %q", gotBody.Value, "consul-dns-watcher")
+	}
+	if !gotBody.Enabled {
+		t.Error("Enabled = false, want true")
+	}
+}
+
 func TestCreateRecord_201Created(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/proxy/network/v2/api/site/default/static-dns", func(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +249,7 @@ func TestCreateRecord_201Created(t *testing.T) {
 	})
 
 	uc, _ := newTestUnifiClient(t, mux)
-	err := uc.CreateRecord(context.Background(), "new.home.jpopa.com", "10.0.0.1")
+	err := uc.CreateRecord(context.Background(), "new.home.jpopa.com", "A", "10.0.0.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,7 +262,7 @@ func TestCreateRecord_ServerError(t *testing.T) {
 	})
 
 	uc, _ := newTestUnifiClient(t, mux)
-	err := uc.CreateRecord(context.Background(), "new.home.jpopa.com", "10.0.0.1")
+	err := uc.CreateRecord(context.Background(), "new.home.jpopa.com", "A", "10.0.0.1")
 	if err == nil {
 		t.Fatal("expected error for server error response")
 	}
@@ -423,7 +456,7 @@ func TestAuth_401RetryWithBody(t *testing.T) {
 		log:        slog.Default(),
 	}
 
-	err := uc.CreateRecord(context.Background(), "web.home.jpopa.com", "10.0.0.1")
+	err := uc.CreateRecord(context.Background(), "web.home.jpopa.com", "A", "10.0.0.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -519,7 +552,7 @@ func TestCreateRecord_ConnectionError(t *testing.T) {
 		apiKey:     "key",
 		log:        slog.Default(),
 	}
-	err := uc.CreateRecord(context.Background(), "test.com", "1.2.3.4")
+	err := uc.CreateRecord(context.Background(), "test.com", "A", "1.2.3.4")
 	if err == nil {
 		t.Fatal("expected connection error")
 	}

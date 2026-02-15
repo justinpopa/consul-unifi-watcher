@@ -23,7 +23,7 @@ type nodeIPSource interface {
 
 type dnsManager interface {
 	ListRecords(ctx context.Context) ([]DNSRecord, error)
-	CreateRecord(ctx context.Context, fqdn, ip string) error
+	CreateRecord(ctx context.Context, key, recordType, value string) error
 	DeleteRecord(ctx context.Context, id string) error
 }
 
@@ -158,15 +158,21 @@ func reconcileOnce(ctx context.Context, log *slog.Logger, consul dnsSource, node
 			log.Warn("reconcile conflict", "fqdn", action.FQDN, "reason", action.Reason)
 
 		case ActionCreate:
-			log.Info("creating DNS record", "fqdn", action.FQDN, "ip", action.IP, "reason", action.Reason)
+			var key string
+			if action.RecordType == "TXT" {
+				key = txtKey(action.FQDN)
+			} else {
+				key = action.FQDN
+			}
+			log.Info("creating DNS record", "fqdn", action.FQDN, "key", key, "type", action.RecordType, "value", action.Value, "reason", action.Reason)
 			if !cfg.DryRun {
-				if err := unifi.CreateRecord(ctx, action.FQDN, action.IP); err != nil {
+				if err := unifi.CreateRecord(ctx, key, action.RecordType, action.Value); err != nil {
 					log.Error("failed to create DNS record", "fqdn", action.FQDN, "error", err)
 				}
 			}
 
 		case ActionDelete:
-			log.Info("deleting DNS record", "fqdn", action.FQDN, "id", action.ID, "reason", action.Reason)
+			log.Info("deleting DNS record", "fqdn", action.FQDN, "id", action.ID, "type", action.RecordType, "reason", action.Reason)
 			if !cfg.DryRun {
 				if err := unifi.DeleteRecord(ctx, action.ID); err != nil {
 					log.Error("failed to delete DNS record", "fqdn", action.FQDN, "error", err)
